@@ -1,9 +1,7 @@
 import matplotlib.pyplot as plt
-import matplotlib.artist
-from matplotlib.text import Text
-from matplotlib import animation
 import numpy as np
-from enum import Enum
+import time
+import os
 
 AGENTS = [
     ("A", 1, 1),
@@ -110,9 +108,15 @@ class Agent:
         """
 
         if (x, y) in g.walls or x < 0 or x >= g.size or y < 0 or y >= g.size:
-            raise ValueError("Cannot set position on a wall.") #probabilmente da modificare perché si vuole che l'agente resti fermo se si prova a muoverlo in una posizione non valida, invece di sollevare un'eccezione
+            return  # Instead of raising error, stay in the same position
         else:
             self.position = (x, y)
+
+    def get_position(self):
+        """
+        Returns the current position of the agent.
+        """
+        return self.position
 
     def move(self, direction):
         """
@@ -164,12 +168,146 @@ def populate(grid, agents_config, objects_config):
         obj = Object((x, y))
         grid.add_object(obj)
 
-if __name__ == "__main__":
+class Trainer:
+    """
+    Centralized Trainer for Multi-Agent Q-learning.
+    Manages a single joint Q-table for all agents.
+    """
+    def __init__(self, grid, alpha=0.1, gamma=0.9, epsilon=0.1):
+        #riguarda i valori dei parametri
+        self.grid = grid
+        self.alpha = alpha
+        self.gamma = gamma
+        self.epsilon = epsilon
+        # joint state:
+        self.num_states = (grid.size ** 2) ** len(grid.agents)
+        # joint actions:
+        self.action_names = list(DIRECTIONS.keys())
+        self.num_joint_actions = len(self.action_names) ** len(grid.agents)
+        # initialize q-table:
+        self.q_table = np.zeros((self.num_states, self.num_joint_actions)) # 4096x64
 
+    def get_state_index(self):
+        """
+        Map joint agent positions to a single state index.
+        """
+        idx = 0 # idx = pos_agente_0 * 1  +  pos_agente_1 * 64
+        coords = []
+        for agent in self.grid.agents:
+            x, y = agent.position
+            pos_idx = y * self.grid.size + x
+            coords.append(pos_idx) # avrò ad es: [19, 13]
+
+        shape = (self.grid.size ** 2,) * len(self.grid.agents) # 64x64
+        idx = int(np.ravel_multi_index(coords, shape=shape)) #indice dell'elemento [19,13] della tabella 64x64
+        return idx
+    
+    def get_joint_action(self, action_idx):
+        """
+        Map joint action index back to individual agent actions.
+        """
+        shape = (4, 4)
+        indices = np.unravel_index(action_idx, shape=shape)
+        joint_actions = [self.action_names[i] for i in indices]
+        return joint_actions
+
+def select_action(self, state_idx):
+        if np.random.rand() < self.epsilon:
+            return np.random.randint(self.num_joint_actions)
+        return np.argmax(self.q_table[state_idx])
+
+def step(self, joint_action_idx):
+    """Execute joint action, handle object collection, and check goal."""
+    actions = self.get_joint_action(joint_action_idx)
+    # Apply actions
+    for i, agent in enumerate(self.grid.agents):
+        agent.move(actions[i])
+
+    total_reward = 0
+    # Ricompensa per ogni oggetto raccolto
+    for obj in self.grid.objects:
+        if not obj.picked:
+            for agent in self.grid.agents:
+                if agent.position == obj.position:
+                    obj.set_picked(True)
+                    total_reward += 10  # reward per oggetto raccolto
+
+    # Verifica se tutti gli oggetti sono stati raccolti
+    all_collected = all(obj.picked for obj in self.grid.objects)
+    reached_goal = False
+    if all_collected:
+        # Se tutti raccolti, verifica se tutti gli agenti sono sulla delivery station
+        all_on_station = all(agent.position == self.grid.delivery_station for agent in self.grid.agents)
+        if all_on_station:
+            total_reward += 50  # reward per raggiungimento goal
+            reached_goal = True
+
+        return total_reward, reached_goal
+
+def update(self, state, action, reward, next_state): #ricontrolla i nomi perché non sono molto chiari
+        best_next_action = np.argmax(self.q_table[next_state])
+        td_target = reward + self.gamma * self.q_table[next_state][best_next_action]
+        self.q_table[state][action] += self.alpha * (td_target - self.q_table[state][action])
+
+def train(self, episodes=1000):
+        for ep in range(episodes):
+            # Reset agents to start positions (hardcoded for now)
+            for i, (name, x, y) in enumerate(AGENTS):
+                self.grid.agents[i].position = (x, y)
+            
+            state = self.get_state_index()
+            done = False
+            steps = 0
+            while not done and steps < 100:
+                action = self.select_action(state)
+                reward, done = self.step(action)
+                next_state = self.get_state_index()
+                self.update(state, action, reward, next_state)
+                state = next_state
+                steps += 1
+            
+            if ep % 100 == 0:
+                print(f"Episode {ep} finished in {steps} steps")
+
+
+if __name__ == "__main__":
     g = Grid(8)
     populate(g, AGENTS, OBJECTS)
     print('Initial grid:')
     g.render()
-    # g.agents[0].move("down")
-    # print('Grid after moving agent down:')
-    # g.render()
+
+    trainer = Trainer(g)
+    print("Starting Centralized Training...")
+    trainer.train(episodes=501)
+
+ # Show final result
+    print("Final demo run:")
+    for i, (name, x, y) in enumerate(AGENTS):
+        g.agents[i].position = (x, y)
+    
+    state = trainer.get_state_index()
+    for _ in range(10):
+        os.system('clear')
+        g.render()
+        action = np.argmax(trainer.q_table[state])
+        trainer.step(action)
+        state = trainer.get_state_index()
+        time.sleep(0.5)
+        if any(a.position == g.delivery_station for a in g.agents):
+            os.system('clear')
+            g.render()
+            print("Goal Reached!")
+            break
+    
+    # Animazione: muovi l'agente A verso destra per 3 passi
+    for _ in range(5):
+        try:
+            g.agents[0].move("down")  # Muovi l'agente A a destra
+        except ValueError:
+            break  # Se non può muoversi, interrompi
+        
+        time.sleep(0.5)  # Ritardo di 0.5 secondi
+        os.system('clear')  # Cancella lo schermo (su Linux/Mac; usa 'cls' su Windows)
+        g.render()  # Ristampa la griglia aggiornata
+    
+    print("Animazione completata.")
