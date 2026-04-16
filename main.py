@@ -118,17 +118,25 @@ class Agent:
         """
         return self.position
 
-    def move(self, direction):
+    def move(self, direction, grid):
         """
         Moves the agent in the specified direction if the new position is valid.
         :param direction: the direction where the agent should move (up, down, left, right)
+        :param grid: the grid instance to check for walls and boundaries
+        :returns: True if the move was successful (not a wall/out of bounds), False otherwise
         """
         if direction not in DIRECTIONS:
             raise ValueError(f"Direzione sconosciuta: {direction}")
         
         dx, dy = DIRECTIONS[direction]
-        x, y = self.position
-        self.set_position(x + dx, y + dy)
+        curr_x, curr_y = self.position
+        new_x, new_y = curr_x + dx, curr_y + dy
+
+        if (new_x, new_y) in grid.walls or new_x < 0 or new_x >= grid.size or new_y < 0 or new_y >= grid.size:
+            return (False, (new_x, new_y))  # Move failed, return False and the attempted position
+        
+        self.set_position(new_x, new_y)
+        return (True, (new_x, new_y))  # Move successful, return True and the new position
 
 class Object:
 
@@ -152,21 +160,6 @@ class Object:
         else:
             self.picked = new_picked
 
-def populate(grid, agents_config, objects_config):
-    """
-    Function that populates the grid with agents and objects based on the provided configurations.
-    :param grid: the grid to be populated
-    :param agents_config: a list of tuples, where each tuple contains the id, x and y coordinates of an agent
-    :param objects_config: a list of tuples, where each tuple contains the x and y coordinates of an object
-    """
-    for agent_id, x, y in agents_config:
-        agent = Agent(agent_id)
-        agent.set_position(x, y)
-        grid.add_agent(agent)
-    
-    for x, y in objects_config:
-        obj = Object((x, y))
-        grid.add_object(obj)
 
 class Trainer:
     """
@@ -199,75 +192,119 @@ class Trainer:
             coords.append(pos_idx) # avrò ad es: [19, 13]
 
         shape = (self.grid.size ** 2,) * len(self.grid.agents) # 64x64
-        idx = int(np.ravel_multi_index(coords, shape=shape)) #indice dell'elemento [19,13] della tabella 64x64
+        idx = int(np.ravel_multi_index(coords, shape)) #indice dell'elemento [19,13] della tabella 64x64
         return idx
     
     def get_joint_action(self, action_idx):
         """
         Map joint action index back to individual agent actions.
+        :param action_idx: the index of the joint action in the Q-table
         """
         shape = (4, 4)
         indices = np.unravel_index(action_idx, shape=shape)
-        joint_actions = [self.action_names[i] for i in indices]
+        joint_actions = [self.action_names[i] for i in indices] #lista contenente le azioni da eseguire per ogni agente, ad es: ['down', 'up']
         return joint_actions
 
-def select_action(self, state_idx):
-        if np.random.rand() < self.epsilon:
-            return np.random.randint(self.num_joint_actions)
-        return np.argmax(self.q_table[state_idx])
+    def select_action(self, state_idx):
+            """
+            Epsilon-greedy action selection.
+            :param state_idx: the index of the current state in the Q-table
+            """
+            if np.random.rand() < self.epsilon:
+                return np.random.randint(self.num_joint_actions)
+            return np.argmax(self.q_table[state_idx])
 
-def step(self, joint_action_idx):
-    """Execute joint action, handle object collection, and check goal."""
-    actions = self.get_joint_action(joint_action_idx)
-    # Apply actions
-    for i, agent in enumerate(self.grid.agents):
-        agent.move(actions[i])
+    def step(self, joint_action_idx):
+        """
+        Execute joint action, handle object collection, and check goal.
+        """
+        actions = self.get_joint_action(joint_action_idx)
+        total_reward = 0
+        outcome = [] #dove salvo i risultati dei move per ogni agente, così da poter eventualmente assegnare reward per i muri o per le celle vuote
+        
+        # Apply actions
+        for i, agent in enumerate(self.grid.agents):
+            outcome.append(agent.move(actions[i]))
 
-    total_reward = 0
-    # Ricompensa per ogni oggetto raccolto
-    for obj in self.grid.objects:
-        if not obj.picked:
-            for agent in self.grid.agents:
-                if agent.position == obj.position:
-                    obj.set_picked(True)
-                    total_reward += 10  # reward per oggetto raccolto
+        # --- DA METTERE REWARD MURI E REWARD CELLE VUOTE ---
+        for agent, (success, attempted_position) in zip(self.grid.agents, outcome):
+            if not success:  # se il movimento non è riuscito (muro o fuori dai limiti)
+                total_reward -= 1
+            else:
+                object_picked = False  # flag per verificare se è stato raccolto un oggetto in questo step
+                for obj in self.grid.objects:
+                    if not obj.picked and agent.position == obj.position:
+                        obj.set_picked(True)
+                        total_reward += 10   # Reward per ogni oggetto raccolto
+                        object_picked = True
+                        break
+                if not object_picked:
+                    total_reward -= 0.04
 
-    # Verifica se tutti gli oggetti sono stati raccolti
-    all_collected = all(obj.picked for obj in self.grid.objects)
-    reached_goal = False
-    if all_collected:
-        # Se tutti raccolti, verifica se tutti gli agenti sono sulla delivery station
-        all_on_station = all(agent.position == self.grid.delivery_station for agent in self.grid.agents)
-        if all_on_station:
-            total_reward += 50  # reward per raggiungimento goal
-            reached_goal = True
+        # Verifica se tutti gli oggetti sono stati raccolti
+        all_collected = all(obj.picked for obj in self.grid.objects)
+        reached_goal = False
+        if all_collected:
+            # Se tutti raccolti, verifica se tutti gli agenti sono sulla delivery station
+            all_on_station = all(agent.position == self.grid.delivery_station for agent in self.grid.agents)
+            if all_on_station:
+                total_reward += 50  # reward per raggiungimento goal
+                reached_goal = True
 
         return total_reward, reached_goal
 
-def update(self, state, action, reward, next_state): #ricontrolla i nomi perché non sono molto chiari
-        best_next_action = np.argmax(self.q_table[next_state])
-        td_target = reward + self.gamma * self.q_table[next_state][best_next_action]
-        self.q_table[state][action] += self.alpha * (td_target - self.q_table[state][action])
+    def update(self, state, action, reward, next_state): #RICONTROLLA I NOMI DEI PARAMETRI IN INGRESSO
+            """Aggiorna la Q-table usando la formula di Q-learning.
+            :param state: l'indice dello stato corrente
+            :param action: l'indice dell'azione eseguita
+            :param reward: la ricompensa ricevuta dopo aver eseguito l'azione
+            :param next_state: l'indice dello stato successivo dopo aver eseguito l'azione
+            """
+            best_next_action = np.argmax(self.q_table[next_state])
+            estimated_q_opt = reward + self.gamma * self.q_table[next_state][best_next_action]
+            # aggiornamento tabella Q
+            self.q_table[state][action] += self.alpha * (estimated_q_opt - self.q_table[state][action])
 
-def train(self, episodes=1000):
-        for ep in range(episodes):
-            # Reset agents to start positions (hardcoded for now)
-            for i, (name, x, y) in enumerate(AGENTS):
-                self.grid.agents[i].position = (x, y)
-            
-            state = self.get_state_index()
-            done = False
-            steps = 0
-            while not done and steps < 100:
-                action = self.select_action(state)
-                reward, done = self.step(action)
-                next_state = self.get_state_index()
-                self.update(state, action, reward, next_state)
-                state = next_state
-                steps += 1
-            
-            if ep % 100 == 0:
-                print(f"Episode {ep} finished in {steps} steps")
+    def train(self, episodes=1000):
+            for ep in range(episodes):
+                # Reset agents to start positions (hardcoded for now)
+                for i, (name, x, y) in enumerate(AGENTS):
+                    self.grid.agents[i].position = (x, y)
+                
+                # Reset objects picked status
+                for obj in self.grid.objects:
+                    obj.set_picked(False)
+                
+                state = self.get_state_index()
+                done = False
+                steps = 0
+                while not done and steps < 100:
+                    action = self.select_action(state)
+                    reward, done = self.step(action)
+                    next_state = self.get_state_index()
+                    self.update(state, action, reward, next_state)
+                    state = next_state
+                    steps += 1
+                
+                if ep % 100 == 0:
+                    print(f"Episode {ep} finished in {steps} steps")
+
+#funzione a se stante (da rivedere se può essere inserita in una classe)
+def populate(grid, agents_config, objects_config):
+    """
+    Function that populates the grid with agents and objects based on the provided configurations.
+    :param grid: the grid to be populated
+    :param agents_config: a list of tuples, where each tuple contains the id, x and y coordinates of an agent
+    :param objects_config: a list of tuples, where each tuple contains the x and y coordinates of an object
+    """
+    for agent_id, x, y in agents_config:
+        agent = Agent(agent_id)
+        agent.set_position(x, y)
+        grid.add_agent(agent)
+    
+    for x, y in objects_config:
+        obj = Object((x, y))
+        grid.add_object(obj)
 
 
 if __name__ == "__main__":
