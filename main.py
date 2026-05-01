@@ -310,11 +310,11 @@ class Trainer:
                 return action
             
             else:
-                #action = np.argmax(self.q_table[state_idx])
-                q_values = self.q_table[state_idx]
-                max_q = np.max(q_values)
-                best_actions = np.where(q_values == max_q)[0]
-                action = np.random.choice(best_actions)
+                action = np.argmax(self.q_table[state_idx])
+                # q_values = self.q_table[state_idx]
+                # max_q = np.max(q_values)
+                # best_actions = np.where(q_values == max_q)[0]
+                # action = np.random.choice(best_actions)
 
                 # if self.t > 0:
                 #     self.epsilon = 1 / self.t
@@ -383,6 +383,7 @@ class Trainer:
             """
             Esegue il processo di training per un numero specificato di episodi.
             :param episodes: il numero di episodi di training da eseguire
+            :param decay_rate: il tasso di decadimento dell'epsilon
             """
             for ep in range(episodes):
 
@@ -442,10 +443,11 @@ if __name__ == "__main__":
     sys.stdout = Tee("training_log.txt") 
 
     # - - - HYPERPARAMETERS CONFIGURATION - - -
+    
     HP_C1 = 1
-    HP_C2 = 100
+    HP_C2 = 1
     HP_GAMMA = 0.9
-    HP_EPISODES = 350
+    HP_EPISODES = 1000
     
     g = Grid(8)
     g.populate(AGENTS, OBJECTS)
@@ -455,20 +457,20 @@ if __name__ == "__main__":
     # plt.show()
     g.render()
 
+    trainer = Trainer(g, c1=HP_C1, c2=HP_C2, gamma=HP_GAMMA)
     # - - - TRAINING - - -
 
-    trainer = Trainer(g, c1=HP_C1, c2=HP_C2, gamma=HP_GAMMA)
-    print(f"Hyperparameters: c1={HP_C1}, c2={HP_C2}, gamma={HP_GAMMA}")
-    print(f"Starting Centralized Training with c1={trainer.c1}, c2={trainer.c2}, gamma={trainer.gamma}...")
-    trainer.train(episodes = HP_EPISODES, decay_rate=0.99)
+    # print(f"Hyperparameters: c1={HP_C1}, c2={HP_C2}, gamma={HP_GAMMA}")
+    # print(f"Starting Centralized Training with c1={trainer.c1}, c2={trainer.c2}, gamma={trainer.gamma}...")
+    # trainer.train(episodes = HP_EPISODES, decay_rate=0.99)
 
     # - - - Q-TABLE SAVE/LOAD - - -
 
-    np.save('q_table.npy', trainer.q_table)
-    print("Q-table salvata in q_table.npy")
+    # np.save('q_table.npy', trainer.q_table)
+    # print("Q-table salvata in q_table.npy")
     
     #Per caricare in seguito:
-    #q_table = np.load('q_table.npy')
+    q_table = np.load('q_table.npy')
 
     # - - - ANIMAZIONE - - -
 
@@ -492,11 +494,7 @@ if __name__ == "__main__":
     print("Starting demo ...")
     while not done and steps < 5000:
         state = trainer.get_state_index()
-        #action = np.argmax(trainer.q_table[state])# + np.random.randn(trainer.num_joint_actions) * 1e-7)  # Aggiunta di rumore per evitare scelte sempre uguali in caso di valori Q simili
-        q_values = trainer.q_table[state]
-        max_q = np.max(q_values)
-        best_actions = np.where(q_values == max_q)[0]
-        action = np.random.choice(best_actions)
+        action = np.argmax(trainer.q_table[state] + np.random.randn(trainer.num_joint_actions) * 1e-3)  # con rumore gaussiano
         reward, done = trainer.step(action)
         steps += 1
         #os.system('clear')
@@ -504,7 +502,7 @@ if __name__ == "__main__":
         # print(f"Epsilon finale: {trainer.epsilon:.16f}")
         # print(f"State: {state}")
         # print(f"Steps: {steps}")
-        # time.sleep(0.20)
+        # time.sleep(0.15)
     
     if done:
         print(f"Goal Reached in {steps} steps!")
