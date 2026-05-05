@@ -4,20 +4,8 @@ from matplotlib.animation import FuncAnimation
 from matplotlib.animation import PillowWriter
 from matplotlib.animation import FFMpegWriter
 import numpy as np
-import time
-import os
 import sys
 
-class Tee:
-    def __init__(self, filename):
-        self.file = open(filename, 'w')
-        self.stdout = sys.stdout
-    def write(self, data):
-        self.stdout.write(data)
-        self.file.write(data)
-    def flush(self):
-        self.stdout.flush()
-        self.file.flush()
 
 AGENTS = [
     ("A", 1, 1),
@@ -39,21 +27,21 @@ DIRECTIONS = {
 
 class Grid:
     """
-    Class representing grid world were the objects reside. The grid can contain walls, objects that can be picked, 
-    a delivery station and two agents. The agents can move within the grid are tracked through class attributes.
+    Class representing a 8x8 grid world. The grid can contain walls, objects that can be picked, 
+    a delivery station and two agents.
     """
 
     def __init__(self, size):
         """
         Constructor for Grid class. The grid is initialized with a set of walls, a delivery station and empty lists for agents and objects.
+        
         :param size: number of rows and columns in the desired squared grid
         """
         self.size = size
         self.walls = {
-                    (3,0), (3,1), (3,2), (2,2), (4,2), #upper section
-                    (3,5), (3,6), (3,7), (2,5), (4,5), #lower section
-                    (6,2), (7,2), #upper right side wall
-                    (6,5), (7,5)  #lower right side wall
+                    (3,0), (3, 1),
+                    (0,3), (1,3), (2,3),
+                    (3,6), (3,7)
                     }
         self.objects = []
         self.delivery_station = (0,7)
@@ -61,23 +49,24 @@ class Grid:
 
     def add_agent(self, agent):
         """
-        Adds an agent to the grid. The agent's position is set through the set_position method of the Agent class.
-
+        Adds an agent to the grid.
+        
         :param agent: the agent to be added to the grid
         """
         self.agents.append(agent)
 
     def add_object(self, obj):
         """
-        Adds an object to the grid. The object's position is set through the start_position attribute of the Object class.
-
+        Adds an object to the grid.
         :param obj: the object to be added to the grid
         """
         self.objects.append(obj)
 
     def render(self):
         """
-        Renders the grid world. The grid is represented as a 2D list of strings, where each string represents a cell in the grid.
+        Method to render the grid world. The grid is represented as a 2D list of strings, where each string represents a cell in the grid.
+        This method is used for debugging purposes and to visualize the grid in a simple and light text format. 
+        The grid is printed to the console, with different symbols representing walls, objects, delivery station and agents.
         """
         grid = [['. ' for _ in range(self.size)] for _ in range(self.size)]
         for (wx, wy) in self.walls:
@@ -102,17 +91,17 @@ class Grid:
     
         return grid
         
-    #dovrebbe andare bene qui MA FORSE E' RIDONDANTE CON QUELLA SOPRA
     def populate(self, agents_config, objects_config):
         """
         Function that populates the grid with agents and objects based on the provided configurations.
+       
         :param grid: the grid to be populated
         :param agents_config: a list of tuples, where each tuple contains the id, x and y coordinates of an agent
         :param objects_config: a list of tuples, where each tuple contains the x and y coordinates of an object
         """
         for agent_id, x, y in agents_config:
             agent = Agent(agent_id)
-            agent.set_position(x, y, self) #con self passo la griglia
+            agent.set_position(x, y, self)
             self.add_agent(agent)
         
         for x, y in objects_config:
@@ -122,6 +111,9 @@ class Grid:
     def plot_grid(self, fig = None, ax = None):
         """
         Plots the grid using patches for walls, station, objects, and agents.
+        
+        :param fig: the figure to plot on, if None a new figure will be created
+        :param ax: the axes to plot on, if None new axes will be created
         """
         if fig is None or ax is None:
             fig, ax = plt.subplots(figsize = (8, 8))
@@ -130,8 +122,8 @@ class Grid:
         ax.set_xlim(0, self.size )
         ax.set_ylim(self.size, 0)
         ax.set_aspect('equal')
-        ax.set_xticklabels([])   # rimuove etichette X
-        ax.set_yticklabels([])   # rimuove etichette Y
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
         ax.grid(color = 'black', linewidth = 1)
 
         # Plot walls
@@ -178,7 +170,7 @@ class Agent:
         """
         Constructor for Agent class. The agent is initialized with an id and a position.
 
-        :param id: the identifier of the agent, also used for rendering the grid
+        :param id: the identifier of the agent, also used for rendering and/or plotting the grid
         :param position: the initial position of the agent, set to None until the set_position method is called
         """
         self.id = id
@@ -208,8 +200,10 @@ class Agent:
     def move(self, direction, grid):
         """
         Moves the agent in the specified direction if the new position is valid.
+        
         :param direction: the direction where the agent should move (up, down, left, right)
         :param grid: the grid instance to check for walls and boundaries
+        
         :returns: True if the move was successful (not a wall/out of bounds), False otherwise
         """
         if direction not in DIRECTIONS:
@@ -232,7 +226,7 @@ class Object:
         Constructor for Object class. The object is initialized with a position and a picked status.
 
         :param start_position: the initial position of the object
-        :param picked: the initial picked status of the object
+        :param picked: boolean attribute indicating the picked status of the object
         """
         self.position = start_position
         self.picked = picked
@@ -240,6 +234,7 @@ class Object:
     def set_picked(self, new_picked):
         """
         Sets the picked status of the object.
+
         :param new_picked: the new picked status of the object, either True or False
         """
         if not isinstance(new_picked, bool):
@@ -250,124 +245,192 @@ class Object:
 
 class Trainer:
     """
-    Centralized Trainer for Multi-Agent Q-learning.
-    Manages a single joint Q-table for all agents.
+    Centralized Trainer for Multi-Agent Q-learning. Manages a single joint Q-table for all agents.
+
+    :param grid: the grid environment in which the agents operate
+    :param c1: the initial learning rate multiplier
+    :param c2: the learning rate decay factor
+    :param alpha: the learning rate
+    :param gamma: the discount factor for future rewards
+    :param epsilon: the exploration rate for epsilon-greedy action selection
+    :param num_states: the total number of joint states in the environment
+    :param action_names: the list of possible actions for each agent
+    :param num_joint_actions: the total number of joint actions
+    :param q_table: the Q-table that stores the Q-values for each state-action pair. Dimension: 4096x64
     """
-    def __init__(self, grid, c1=1, c2=1, gamma=0.9): #PROVA A VARIARE GAMMA
-        #riguarda i valori dei parametri
+    def __init__(self, grid, c1=1, c2=1, gamma=0.9):
+        
         self.grid = grid
-        self.t = 0 #numero di passi totali, usato per decrescere alpha nel tempo
+        self.t = 0
         self.c1 = c1
         self.c2 = c2
         self.alpha = self.c1 / (self.c2 + self.t)
         self.gamma = gamma
         self.epsilon = 0.1
-        # joint state:
         self.num_states = (grid.size ** 2) ** len(grid.agents)
-        # joint actions:
         self.action_names = list(DIRECTIONS.keys())
         self.num_joint_actions = len(self.action_names) ** len(grid.agents)
-        # initialize q-table:
-        self.q_table = np.zeros((self.num_states, self.num_joint_actions)) # 4096x64
+        self.q_table = np.zeros((self.num_states, self.num_joint_actions))
 
     def get_state_index(self):
         """
         Map joint agent positions to a single state index.
+
+        :return: the index of the current state in the Q-table, computed based on the positions of all agents in the grid
         """
-        idx = 0 # idx = pos_agente_0 * 1  +  pos_agente_1 * 64
+        idx = 0
         coords = []
         for agent in self.grid.agents:
             x, y = agent.position
             pos_idx = y * self.grid.size + x
-            coords.append(pos_idx) # avrò ad es: [19, 13]
+            coords.append(pos_idx)
 
-        #shape = (self.grid.size ** 2,) * len(self.grid.agents) # 64x64
-        #idx = int(np.ravel_multi_index(coords, shape)) #indice dell'elemento [19,13] della tabella 64x64
         idx = coords[0] + coords[1] * (self.grid.size ** 2)
         return idx
     
     def get_joint_action(self, action_idx):
         """
         Map joint action index back to individual agent actions.
+
         :param action_idx: the index of the joint action in the Q-table
+
+        :return: a list of actions for each agent corresponding to the given joint action index
         """
         shape = (4, 4)
         indices = np.unravel_index(action_idx, shape=shape)
-        joint_actions = [self.action_names[i] for i in indices] #lista contenente le azioni da eseguire per ogni agente, ad es: ['down', 'up']
+        joint_actions = []
+
+        for i in indices:
+            action_name = self.action_names[i]
+            joint_actions.append(action_name)
+
         return joint_actions
+    
+    def manhattan_distance(self, p1, p2):
+        """
+        Return Manhattan distance between two grid positions.
+        
+        :param p1: the first position as a tuple (x, y)
+        :param p2: the second position as a tuple (x, y)
+        """
+
+        return abs(p1[0] - p2[0]) + abs(p1[1] - p2[1])
+    
+    def dynamic_reward(self, prev_pos, current_pos, unpicked_objects, all_collected):
+        """
+        Compute a small potential-based reward using Manhattan attraction.
+
+        - While objects remain, only object potentials are active.
+        - When all objects are collected, station potential is activated.
+        - If an agent moves closer to the station before all objects are collected, apply a small penalty.
+
+        :param prev_pos: the previous position of the agent
+        :param current_pos: the current position of the agent
+        :param unpicked_objects: list of objects that have not been picked yet
+        :param all_collected: boolean indicating whether all objects have been collected
+        """
+        reward = 0.0
+
+        if not all_collected and unpicked_objects:
+            old_dist = min(self.manhattan_distance(prev_pos, obj.position) for obj in unpicked_objects)
+            new_dist = min(self.manhattan_distance(current_pos, obj.position) for obj in unpicked_objects)
+            reward += 0.05 * (old_dist - new_dist)
+
+            # Penalize moving toward the station before all objects are collected
+            old_station = self.manhattan_distance(prev_pos, self.grid.delivery_station)
+            new_station = self.manhattan_distance(current_pos, self.grid.delivery_station)
+            if new_station < old_station:
+                reward -= 0.1
+
+        elif all_collected:
+            old_station = self.manhattan_distance(prev_pos, self.grid.delivery_station)
+            new_station = self.manhattan_distance(current_pos, self.grid.delivery_station)
+            reward += 0.05 * (old_station - new_station)
+
+        return reward
 
     def select_action(self, state_idx):
             """
             Epsilon-greedy action selection.
+
             :param state_idx: the index of the current state in the Q-table
+
+            :return: the index of the joint action selected based on epsilon-greedy strategy
             """
             if np.random.rand() < self.epsilon:
                 action = np.random.randint(self.num_joint_actions)
-
-                # if self.t > 0:
-                #     self.epsilon = 1 / self.t
-                
                 return action
             
             else:
                 action = np.argmax(self.q_table[state_idx])
-                # q_values = self.q_table[state_idx]
-                # max_q = np.max(q_values)
-                # best_actions = np.where(q_values == max_q)[0]
-                # action = np.random.choice(best_actions)
-
-                # if self.t > 0:
-                #     self.epsilon = 1 / self.t
-
                 return action
 
     def step(self, joint_action_idx):
         """
         Execute joint action, handle object collection, and check goal.
+
         :param joint_action_idx: the index of the joint action to be executed
+
+        :return: a tuple containing the total reward obtained from executing the joint action and a boolean indicating whether the goal has been reached
         """
         actions = self.get_joint_action(joint_action_idx)
         total_reward = 0
-        outcome = [] #dove salvo i risultati dei move per ogni agente, così da poter eventualmente assegnare reward per i muri o per le celle vuote
+        previous_positions = [agent.position for agent in self.grid.agents]
+        outcome = []
         
         # Apply actions
         for i, agent in enumerate(self.grid.agents):
             outcome.append(agent.move(actions[i], self.grid))
 
-        # --- DA METTERE REWARD MURI E REWARD CELLE VUOTE ---
-        for agent, (success, attempted_position) in zip(self.grid.agents, outcome):
-            if not success:  # se il movimento non è riuscito (muro o fuori dai limiti)
+        unpicked_objects = [obj for obj in self.grid.objects if not obj.picked]
+        all_collected = len(unpicked_objects) == 0
+        reached_goal = False
+
+        for (agent,prev_pos), (success, attempted_position) in zip(zip(self.grid.agents, previous_positions), outcome):
+            if not success: # wall or out of bounds
                 total_reward -= 0.5
             else:
-                is_picked = False  # flag per verificare se è stato raccolto un oggetto in questo step
+                is_picked = False # flag for a picked object
                 for obj in self.grid.objects:
                     if not obj.picked and agent.position == obj.position:
                         obj.set_picked(True)
-                        total_reward += 10   # Reward per ogni oggetto raccolto
+                        total_reward += 10 # Reward for one picked object 
                         is_picked = True
                         break
                 if not is_picked:
                     total_reward -= 0.04
 
-        # Verifica se tutti gli oggetti sono stati raccolti
-        all_collected = all(obj.picked for obj in self.grid.objects)
-        reached_goal = False
+                # Add potential-based attraction reward
+                total_reward += self.dynamic_reward(prev_pos, agent.position, unpicked_objects, all_collected)
+
+        # Recompute object status after any pickups
+        unpicked_objects = []
+        for obj in self.grid.objects:
+            if not obj.picked:
+                unpicked_objects.append(obj)
+
+        if len(unpicked_objects) == 0:
+            all_collected = True
+        else:
+            all_collected = False
+
         if all_collected:
-            # Se tutti raccolti, verifica se tutti gli agenti sono sulla delivery station
+
             all_on_station = all(agent.position == self.grid.delivery_station for agent in self.grid.agents)
             if all_on_station:
-                total_reward += 50  # reward per raggiungimento goal
+                total_reward += 50  # goal reward
                 reached_goal = True
 
         return total_reward, reached_goal
 
-    def update(self, state, action, reward, next_state): #RICONTROLLA I NOMI DEI PARAMETRI IN INGRESSO
+    def update(self, state, action, reward, next_state):
             """
-            Aggiorna la Q-table usando la formula di Q-learning.
-            :param state: l'indice dello stato corrente
-            :param action: l'indice dell'azione eseguita
-            :param reward: la ricompensa ricevuta dopo aver eseguito l'azione
-            :param next_state: l'indice dello stato successivo dopo aver eseguito l'azione
+            Update the Q table using the Q-learning update rule.
+
+            :param state: current state index before taking the action
+            :param action: index of the joint action taken in the current state
+            :param reward: reward obtained after taking the action
+            :param next_state: index of the next state after taking the action
             """
 
             self.t += 1
@@ -376,18 +439,19 @@ class Trainer:
             best_next_action = np.argmax(self.q_table[next_state])
             estimated_q_opt = reward + self.gamma * self.q_table[next_state][best_next_action]
 
-            # aggiornamento tabella Q
+            # Q table update
             self.q_table[state][action] += self.alpha * (estimated_q_opt - self.q_table[state][action])
 
     def train(self, episodes, decay_rate):
             """
-            Esegue il processo di training per un numero specificato di episodi.
-            :param episodes: il numero di episodi di training da eseguire
-            :param decay_rate: il tasso di decadimento dell'epsilon
+            Execute the training process for a specified number of episodes.
+
+            :param episodes: the number of training episodes to execute
+            :param decay_rate: the decay rate of epsilon
             """
             for ep in range(episodes):
 
-                self.grid.reset_grid()  # Resetta la griglia all'inizio di ogni episodio
+                self.grid.reset_grid()
                 
 
                 self.epsilon = max(0.01, self.epsilon * decay_rate)
@@ -406,107 +470,115 @@ class Trainer:
                 #self.grid.render()
                 print(f"Episode {ep} finished in {steps} steps, epsilon: {self.epsilon:.16f}")
 
-    def animate_grid(self, interval=100, repeat=True, max_steps=5000):
+    def animate_grid(self, interval=100, repeat=True):
         """
-        Funzione che esegue una animazione attraverso FuncAnimation
+        Function to animate the grid world using matplotlib's FuncAnimation.
+        The generator frame_gen() counts the frames and stops when done=True.
+        
+        :param interval: time in milliseconds between frames
+        :param repeat: whether the animation should repeat after completion
         """
-        fig, ax = plt.subplots(figsize=(5, 5))  # figura più piccola
+        
+        fig, ax = plt.subplots(figsize=(5, 5))
         self.grid.reset_grid()
 
         done = False
-        steps = 0
+
+        def frame_gen():
+            
+            nonlocal done
+            
+            i = 0
+            
+            while not done:
+                yield i
+                i += 1
 
         def update(frame):
-            nonlocal done, steps
+            
+            nonlocal done
+            
             ax.clear()
-            # Primo frame: mostra solo lo stato iniziale, nessuna azione
+            # Show first frame with initial grid
             if frame == 0:
                 self.grid.plot_grid(fig=fig, ax=ax)
                 return []
-            if done or steps >= max_steps:
-                if anim.event_source is not None:
-                    anim.event_source.stop()
-                return []
+            
             state = self.get_state_index()
-            action = np.argmax(self.q_table[state]) #+ np.random.randn(self.num_joint_actions) * 1e-7
+            action = self.select_action(state)
             reward, done = self.step(action)
-            steps += 1
             self.grid.plot_grid(fig=fig, ax=ax)
             return []
 
-        anim = FuncAnimation(fig=fig, func=update, frames=range(max_steps+1), interval=interval, repeat=repeat)
+        anim = FuncAnimation(fig=fig, func=update, frames=frame_gen(), interval=interval, repeat=repeat)
         return anim
 
 
 if __name__ == "__main__":
 
-    sys.stdout = Tee("training_log.txt") 
-
-    # - - - HYPERPARAMETERS CONFIGURATION - - -
+# - - - HYPERPARAMETERS CONFIGURATION - - -
     
     HP_C1 = 1
     HP_C2 = 1
     HP_GAMMA = 0.9
-    HP_EPISODES = 1000
-    
+    HP_EPISODES = 100
+    HP_EPSILON = 0.33
+
     g = Grid(8)
     g.populate(AGENTS, OBJECTS)
-    g.objects[0].set_picked(True)
     print('Initial grid:')
-    # fig,ax =g.plot_grid()
-    # plt.show()
-    g.render()
-
+    
     trainer = Trainer(g, c1=HP_C1, c2=HP_C2, gamma=HP_GAMMA)
+    
     # - - - TRAINING - - -
 
     # print(f"Hyperparameters: c1={HP_C1}, c2={HP_C2}, gamma={HP_GAMMA}")
     # print(f"Starting Centralized Training with c1={trainer.c1}, c2={trainer.c2}, gamma={trainer.gamma}...")
     # trainer.train(episodes = HP_EPISODES, decay_rate=0.99)
 
-    # - - - Q-TABLE SAVE/LOAD - - -
+    # - - - Q-TABLE SAVE - - -
 
-    # np.save('q_table.npy', trainer.q_table)
-    # print("Q-table salvata in q_table.npy")
+    # np.save(f'std_episodes_{HP_EPISODES}_eps_{HP_EPSILON}.npy', trainer.q_table)
+    # print("Q-table salvata")
     
-    #Per caricare in seguito:
-    q_table = np.load('q_table.npy')
+    # - - - Q-TABLE LOAD - - -
 
-    # - - - ANIMAZIONE - - -
+    trainer.q_table = np.load(f'std_episodes_{HP_EPISODES}_eps_{HP_EPSILON}.npy')   
 
-    #g.reset_grid()
-    #anim = trainer.animate_grid()
-    # Salva animazione come GIF (opzionale)
+    # - - - ANIMAZIONE - - - RICORDA PASSARE MAX_STEPS PER DECIDERE LUNGHEZZA
+
+    g.reset_grid()
+    anim = trainer.animate_grid()
+    
+    # - - - GIF SAVE - - -
+
     #anim.save('Q_learning_grid.gif', writer=PillowWriter(fps=2, bitrate=1000), dpi=100)
 
-    # Salva animazione come MP4 usando FFMpegWriter esplicito
-    #anim.save('Q_learning_grid.mp4', writer=FFMpegWriter(fps=5, bitrate=1000), dpi=100)
+    # - - - MP4 SAVE - - -
     
-    #anim.save('prova.mp4', writer=FFMpegWriter(fps=5, bitrate=1000), dpi=100)
+    anim.save(f'std_episodes_{HP_EPISODES}_eps_{HP_EPSILON}.mp4', writer=FFMpegWriter(fps=5, bitrate=1000), dpi=100)
 
     
     # - - - DEMO TEST - - -
 
-    g.reset_grid()
+    # g.reset_grid()
 
-    done = False
-    steps = 0
-    print("Starting demo ...")
-    while not done and steps < 5000:
-        state = trainer.get_state_index()
-        action = np.argmax(trainer.q_table[state] + np.random.randn(trainer.num_joint_actions) * 1e-3)  # con rumore gaussiano
-        reward, done = trainer.step(action)
-        steps += 1
-        #os.system('clear')
-        # g.render()
-        # print(f"Epsilon finale: {trainer.epsilon:.16f}")
-        # print(f"State: {state}")
-        # print(f"Steps: {steps}")
-        # time.sleep(0.15)
+    # done = False
+    # steps = 0
+    # print("Starting demo ...")
+    # while not done and steps < 100000:
+    #     state = trainer.get_state_index()
+    #     action = trainer.select_action(state)
+    #     reward, done = trainer.step(action)
+    #     steps += 1
+    #     g.render()
+    #     print(f"Epsilon finale: {trainer.epsilon:.16f}")
+    #     print(f"State: {state}")
+    #     print(f"Steps: {steps}")
+    #     time.sleep(0.15)
     
-    if done:
-        print(f"Goal Reached in {steps} steps!")
-    else:
-        print("Demo completed without reaching the goal.")
-
-    #RICORDARSI DI TOGLIERE RENDER E PRINT VARI 
+    # if done:
+    #     print(f"Goal Reached in {steps} steps!")
+    # else:
+    #     print("Demo completed without reaching the goal.")
+    
