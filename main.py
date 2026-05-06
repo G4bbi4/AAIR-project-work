@@ -9,13 +9,13 @@ import sys
 
 AGENTS = [
     ("A", 1, 1),
-    ("B", 1, 4),
+    ("B", 1, 5),
 ]
 
 OBJECTS = [
-    (7, 0),
+    (6, 1),
     (6, 3),
-    (7, 7),
+    (6, 6),
 ]
 
 DIRECTIONS = {
@@ -116,7 +116,7 @@ class Grid:
         :param ax: the axes to plot on, if None new axes will be created
         """
         if fig is None or ax is None:
-            fig, ax = plt.subplots(figsize = (8, 8))
+            fig, ax = plt.subplots(figsize = (5, 5))
 
         # Set axis limits and appearance
         ax.set_xlim(0, self.size )
@@ -132,21 +132,21 @@ class Grid:
 
         # Plot delivery station
         sx, sy = self.delivery_station
-        ax.plot(sx + 0.5, sy + 0.5, marker='*', markersize=40, markerfacecolor='green', markeredgecolor='black')
+        ax.plot(sx + 0.5, sy + 0.5, marker='*', markersize=25, markerfacecolor='green', markeredgecolor='black')
 
         # Plot objects
         for obj in self.objects:
             if not obj.picked:
                 ox, oy = obj.position
-                ax.add_patch(mpatches.Circle((ox + 0.5, oy + 0.5), 0.3, facecolor='#03C03C', edgecolor='black'))
+                ax.add_patch(mpatches.Circle((ox + 0.5, oy + 0.5), 0.25, facecolor='#03C03C', edgecolor='black'))
             else:
                 ox, oy = obj.position
-                ax.plot(ox + 0.5, oy + 0.5, marker='X', markersize=35, markerfacecolor='#03C03C', markeredgecolor='black')
+                ax.plot(ox + 0.5, oy + 0.5, marker='X', markersize=30, markerfacecolor='#03C03C', markeredgecolor='black')
         
         # Plot agents
         for agent in self.agents:
-            ax.add_patch(mpatches.Circle((agent.position[0] + 0.5, agent.position[1] + 0.5), 0.35, color='darkblue'))
-            ax.text(agent.position[0] + 0.5, agent.position[1] + 0.5, agent.id, color='white', ha='center', va='center', fontsize=12, weight='bold')
+            ax.add_patch(mpatches.Circle((agent.position[0] + 0.5, agent.position[1] + 0.5), 0.30, color='darkblue'))
+            ax.text(agent.position[0] + 0.5, agent.position[1] + 0.5, agent.id, color='white', ha='center', va='center', fontsize=10, weight='bold')
 
         return fig, ax
 
@@ -521,13 +521,18 @@ if __name__ == "__main__":
     HP_C1 = 1
     HP_C2 = 1
     HP_GAMMA = 0.9
-    HP_EPISODES = 100
+    HP_EPISODES = 200
     HP_EPSILON = 0.33
 
     g = Grid(8)
     g.populate(AGENTS, OBJECTS)
-    print('Initial grid:')
     
+    # - - - INITIAL GRID PLOT - - -
+    
+    # g.plot_grid()
+    # plt.savefig('initial_grid.png', dpi=100)
+    # plt.show()
+
     trainer = Trainer(g, c1=HP_C1, c2=HP_C2, gamma=HP_GAMMA)
     
     # - - - TRAINING - - -
@@ -543,42 +548,42 @@ if __name__ == "__main__":
     
     # - - - Q-TABLE LOAD - - -
 
-    trainer.q_table = np.load(f'std_episodes_{HP_EPISODES}_eps_{HP_EPSILON}.npy')   
+    trainer.q_table = np.load(f'tables/std_episodes_{HP_EPISODES}_eps_{HP_EPSILON}.npy')   
 
     # - - - ANIMAZIONE - - - RICORDA PASSARE MAX_STEPS PER DECIDERE LUNGHEZZA
 
-    g.reset_grid()
-    anim = trainer.animate_grid()
+    # g.reset_grid()
+    # anim = trainer.animate_grid()
     
     # - - - GIF SAVE - - -
 
-    #anim.save('Q_learning_grid.gif', writer=PillowWriter(fps=2, bitrate=1000), dpi=100)
+    # anim.save(f'std_episodes_{HP_EPISODES}_eps_{HP_EPSILON}.gif', writer=PillowWriter(fps=2, bitrate=1000), dpi=100)
 
     # - - - MP4 SAVE - - -
     
-    anim.save(f'std_episodes_{HP_EPISODES}_eps_{HP_EPSILON}.mp4', writer=FFMpegWriter(fps=5, bitrate=1000), dpi=100)
+    #anim.save(f'std_episodes_{HP_EPISODES}_eps_{HP_EPSILON}.mp4', writer=FFMpegWriter(fps=5, bitrate=1000), dpi=100)
 
     
     # - - - DEMO TEST - - -
 
-    # g.reset_grid()
+    g.reset_grid()
 
-    # done = False
-    # steps = 0
-    # print("Starting demo ...")
-    # while not done and steps < 100000:
-    #     state = trainer.get_state_index()
-    #     action = trainer.select_action(state)
-    #     reward, done = trainer.step(action)
-    #     steps += 1
+    done = False
+    steps = 0
+    print("Starting demo ...")
+    while not done and steps < 100000:
+        state = trainer.get_state_index()
+        action = trainer.select_action(state)
+        reward, done = trainer.step(action)
+        steps += 1
     #     g.render()
     #     print(f"Epsilon finale: {trainer.epsilon:.16f}")
     #     print(f"State: {state}")
     #     print(f"Steps: {steps}")
     #     time.sleep(0.15)
     
-    # if done:
-    #     print(f"Goal Reached in {steps} steps!")
-    # else:
-    #     print("Demo completed without reaching the goal.")
+    if done:
+        print(f"Goal Reached in {steps} steps!")
+    else:
+        print("Demo completed without reaching the goal.")
     
