@@ -41,7 +41,10 @@ where:
 - $\gamma$ discount factor
 - $\alpha(t)$ learning rate
 
-3. All the other state-action pairs are not updated: ${Q}_{t+1}(x,u) = {Q}_{t}(x,u)$ if $(x,u) \neq (x(t), u(t))$
+3. All the other state-action pairs are not updated: 
+```math
+{Q}_{t+1}(x,u) = {Q}_{t}(x,u)$ if $(x,u) \neq (x(t), u(t))
+```
 
 Being this an off policy method we want to find the optimal policy. The action value function found in the algorithm converge to the optimal one if: 
 1. All the action-state pairs are visited endlessly. This is guaranteed by an $\epsilon$-greedy policy. This policy allow to choose randomly between a greedy action or a random one.
