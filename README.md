@@ -29,7 +29,7 @@ The algorithm consists of the following steps:
 
 2. We update the estimated value of the pair $(x(t), u(t))$ using Temporal Difference:
 
-    - $ \hat{Q}_{t+1}(x(t), u(t)) = r(t) + \gamma \max_{u'} Q_t(x(t+1), u')$
+    - $\hat{Q}_{t+1}(x(t), u(t)) = r(t) + \gamma \max_{u'} Q_t(x(t+1), u')$
 
     - $Q_{t+1}(x(t), u(t)) = Q_t(x(t), u(t)) + \alpha(t)[\hat{Q}_{t+1}(x(t), u(t)) - Q_t(x(t), u(t))]$
 
