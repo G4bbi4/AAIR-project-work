@@ -1,3 +1,5 @@
+import time
+
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.animation import FuncAnimation
@@ -40,7 +42,7 @@ class Grid:
         self.size = size
         self.walls = {
                     (3,0), (3, 1),
-                    (0,3), (1,3), (2,3),
+                    (0,3), (1,3), #(2,3),
                     (3,6), (3,7)
                     }
         self.objects = []
@@ -122,13 +124,15 @@ class Grid:
         ax.set_xlim(0, self.size )
         ax.set_ylim(self.size, 0)
         ax.set_aspect('equal')
+        ax.set_facecolor('#F5F0E8')
         ax.set_xticklabels([])
         ax.set_yticklabels([])
-        ax.grid(color = 'black', linewidth = 1)
+        ax.tick_params(length=0) 
+        ax.grid(color='black', linewidth=0.8, zorder=0)
 
         # Plot walls
         for (wx, wy) in self.walls:
-            ax.add_patch(mpatches.Rectangle((wx, wy), 1, 1, facecolor='#CE3018', edgecolor='white', hatch='//'))
+            ax.add_patch(mpatches.Rectangle((wx, wy), 1, 1, facecolor='#CE3018', edgecolor='white', hatch='//', linewidth = 0.5, zorder=1))
 
         # Plot delivery station
         sx, sy = self.delivery_station
@@ -138,14 +142,14 @@ class Grid:
         for obj in self.objects:
             if not obj.picked:
                 ox, oy = obj.position
-                ax.add_patch(mpatches.Circle((ox + 0.5, oy + 0.5), 0.25, facecolor='#03C03C', edgecolor='black'))
+                ax.add_patch(mpatches.Circle((ox + 0.5, oy + 0.5), 0.25, facecolor='#03C03C', edgecolor='black', linewidth = 1.5, zorder=2))
             else:
                 ox, oy = obj.position
-                ax.plot(ox + 0.5, oy + 0.5, marker='X', markersize=30, markerfacecolor='#03C03C', markeredgecolor='black')
+                ax.plot(ox + 0.5, oy + 0.5, marker='X', markersize=30, markerfacecolor='#03C03C', markeredgecolor='black', linewidth = 1.5, zorder=2)
         
         # Plot agents
         for agent in self.agents:
-            ax.add_patch(mpatches.Circle((agent.position[0] + 0.5, agent.position[1] + 0.5), 0.30, color='darkblue'))
+            ax.add_patch(mpatches.Circle((agent.position[0] + 0.5, agent.position[1] + 0.5), 0.30, color='darkblue', zorder = 3))
             ax.text(agent.position[0] + 0.5, agent.position[1] + 0.5, agent.id, color='white', ha='center', va='center', fontsize=10, weight='bold')
 
         return fig, ax
@@ -258,16 +262,18 @@ class Trainer:
     :param num_joint_actions: the total number of joint actions
     :param q_table: the Q-table that stores the Q-values for each state-action pair. Dimension: 4096x64
     """
-    def __init__(self, grid, c1=1, c2=1, gamma=0.9):
+    def __init__(self, grid, c1=1, c2=1, d1=1, d2=1, gamma=0.9):
         
         self.grid = grid
         self.t = 0
         self.c1 = c1
         self.c2 = c2
+        self.d1 = d1
+        self.d2 = d2
         self.alpha = self.c1 / (self.c2 + self.t)
         self.gamma = gamma
-        self.epsilon = 0.1
-        self.num_states = (grid.size ** 2) ** len(grid.agents)
+        self.epsilon = self.d1 / (self.d2 + self.t)
+        self.num_states = (grid.size ** 2) ** len(grid.agents) * (2 ** len(grid.objects))
         self.action_names = list(DIRECTIONS.keys())
         self.num_joint_actions = len(self.action_names) ** len(grid.agents)
         self.q_table = np.zeros((self.num_states, self.num_joint_actions))
@@ -278,14 +284,28 @@ class Trainer:
 
         :return: the index of the current state in the Q-table, computed based on the positions of all agents in the grid
         """
-        idx = 0
         coords = []
         for agent in self.grid.agents:
             x, y = agent.position
             pos_idx = y * self.grid.size + x
             coords.append(pos_idx)
 
-        idx = coords[0] + coords[1] * (self.grid.size ** 2)
+        position_space = self.grid.size ** 2
+        idx = 0
+        multiplier = 1
+        for pos_idx in coords:
+            idx += pos_idx * multiplier
+            multiplier *= position_space
+
+        object_bits = 0
+        for i, obj in enumerate(self.grid.objects):
+            if obj.picked:
+                object_bits |= (1 << i) # Ogni oggetto corrisponde a una posizione di bit. 
+                                        # Se è stato raccolto, quel bit vale 1, altrimenti 0. 
+                                        # Il numero finale è una "fotografia" binaria dello stato di tutti gli oggetti.
+                                        # Es: 1 raccolto, 2 non raccolto e 3 raccolto: 101 => 5 
+
+        idx += object_bits * multiplier
         return idx
     
     def get_joint_action(self, action_idx):
@@ -382,7 +402,11 @@ class Trainer:
         for i, agent in enumerate(self.grid.agents):
             outcome.append(agent.move(actions[i], self.grid))
 
-        unpicked_objects = [obj for obj in self.grid.objects if not obj.picked]
+        unpicked_objects = []
+        for obj in self.grid.objects:
+            if not obj.picked:
+                unpicked_objects.append(obj)
+                
         all_collected = len(unpicked_objects) == 0
         reached_goal = False
 
@@ -433,28 +457,34 @@ class Trainer:
             :param next_state: index of the next state after taking the action
             """
 
-            self.t += 1
-            self.alpha = self.c1 / (self.c2 + self.t)
-
             best_next_action = np.argmax(self.q_table[next_state])
             estimated_q_opt = reward + self.gamma * self.q_table[next_state][best_next_action]
 
             # Q table update
             self.q_table[state][action] += self.alpha * (estimated_q_opt - self.q_table[state][action])
 
-    def train(self, episodes, decay_rate):
+            self.t += 1
+            self.alpha = self.c1 / (self.c2 + self.t)
+            self.epsilon = self.d1 / (self.d2 + self.t)
+
+
+    def train(self, episodes): #qui prima c'era il decay rate
             """
             Execute the training process for a specified number of episodes.
 
             :param episodes: the number of training episodes to execute
-            :param decay_rate: the decay rate of epsilon
             """
+            
+            reward_history = []
+            cumulative_reward = []
+
             for ep in range(episodes):
 
                 self.grid.reset_grid()
                 
+                total_reward = 0
 
-                self.epsilon = max(0.01, self.epsilon * decay_rate)
+                self.epsilon = max(0.01, self.epsilon)
                  
                 state = self.get_state_index()
                 done = False
@@ -462,6 +492,7 @@ class Trainer:
                 while not done and steps < 100000:
                     action = self.select_action(state)
                     reward, done = self.step(action)
+                    total_reward += reward
                     next_state = self.get_state_index()
                     self.update(state, action, reward, next_state)
                     state = next_state
@@ -469,6 +500,27 @@ class Trainer:
                 
                 #self.grid.render()
                 print(f"Episode {ep} finished in {steps} steps, epsilon: {self.epsilon:.16f}")
+                reward_history.append(total_reward)
+                cumulative_reward.append(sum(reward_history))
+
+            fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+            axes[0].plot(range(episodes), reward_history)
+            axes[0].axhline(0, color='red', linewidth=1, linestyle='--')
+            axes[0].set_xlabel("Episode")
+            axes[0].set_ylabel("Total Reward per Episode")
+            axes[0].set_title("Per-Episode Reward")
+
+            axes[1].plot(range(episodes), cumulative_reward, color='blue')
+            axes[1].axhline(0, color='red', linewidth=1, linestyle='--')
+            axes[1].set_xlabel("Episode")
+            axes[1].set_ylabel("Cumulative Total Reward")
+            axes[1].set_title("Cumulative Reward")
+
+            fig.suptitle("Reward Trend")
+            fig.tight_layout(rect=[0, 0, 1, 0.96])
+            fig.savefig('training_reward_trend.png', dpi=150)
+            plt.show()
 
     def animate_grid(self, interval=100, repeat=True):
         """
@@ -518,11 +570,12 @@ if __name__ == "__main__":
 
 # - - - HYPERPARAMETERS CONFIGURATION - - -
     
-    HP_C1 = 1
-    HP_C2 = 1
+    HP_C1 = 10000
+    HP_C2 = 35000
+    HP_D1 = 25000
+    HP_D2 = 25000 # d1 e d2 vanno messi alti
     HP_GAMMA = 0.9
-    HP_EPISODES = 200
-    HP_EPSILON = 0.33
+    HP_EPISODES = 600
 
     g = Grid(8)
     g.populate(AGENTS, OBJECTS)
@@ -533,35 +586,49 @@ if __name__ == "__main__":
     # plt.savefig('initial_grid.png', dpi=100)
     # plt.show()
 
-    trainer = Trainer(g, c1=HP_C1, c2=HP_C2, gamma=HP_GAMMA)
+    # - - - OBJECT PICKED PLOT - - -
+
+    # g.reset_grid()
+    # if g.objects:
+    #     g.objects[0].set_picked(True)
+
+    # g.agents[0].position = (1, 2)
+    # g.agents[1].position = (2, 6)
+
+    # g.plot_grid()
+    # plt.savefig('snapshot_object_picked.png', dpi=150)
+    # plt.show()
     
     # - - - TRAINING - - -
 
-    # print(f"Hyperparameters: c1={HP_C1}, c2={HP_C2}, gamma={HP_GAMMA}")
-    # print(f"Starting Centralized Training with c1={trainer.c1}, c2={trainer.c2}, gamma={trainer.gamma}...")
-    # trainer.train(episodes = HP_EPISODES, decay_rate=0.99)
+    g.reset_grid()
+    trainer = Trainer(g, c1=HP_C1, c2=HP_C2, d1=HP_D1, d2=HP_D2, gamma=HP_GAMMA)
+
+    print(f"Hyperparameters: c1={HP_C1}, c2={HP_C2}, d1={HP_D1}, d2={HP_D2}, gamma={HP_GAMMA}")
+    print(f"Starting Centralized Training with c1={trainer.c1}, c2={trainer.c2}, d1={trainer.d1}, d2={trainer.d2}, gamma={trainer.gamma}...")
+    trainer.train(episodes = HP_EPISODES)
 
     # - - - Q-TABLE SAVE - - -
 
-    # np.save(f'std_episodes_{HP_EPISODES}_eps_{HP_EPSILON}.npy', trainer.q_table)
-    # print("Q-table salvata")
+    np.save(f'c1={HP_C1}, c2={HP_C2}, d1={HP_D1}, d2={HP_D2}, gamma={HP_GAMMA}.npy', trainer.q_table)
+    print("Q-table salvata")
     
     # - - - Q-TABLE LOAD - - -
 
-    trainer.q_table = np.load(f'tables/std_episodes_{HP_EPISODES}_eps_{HP_EPSILON}.npy')   
+    # trainer.q_table = np.load(f'tables/std_episodes_{HP_EPISODES}_eps_{HP_EPSILON}.npy')   
 
-    # - - - ANIMAZIONE - - - RICORDA PASSARE MAX_STEPS PER DECIDERE LUNGHEZZA
+    # - - - ANIMATION - - -
 
-    # g.reset_grid()
-    # anim = trainer.animate_grid()
+    g.reset_grid()
+    anim = trainer.animate_grid()
     
     # - - - GIF SAVE - - -
 
-    # anim.save(f'std_episodes_{HP_EPISODES}_eps_{HP_EPSILON}.gif', writer=PillowWriter(fps=2, bitrate=1000), dpi=100)
+    anim.save(f'{HP_EPISODES}_episodes_c1_{HP_C1}_c2_{HP_C2}_d1_{HP_D1}_d2_{HP_D2}.gif', writer=PillowWriter(fps=2, bitrate=1000), dpi=100)
 
     # - - - MP4 SAVE - - -
     
-    #anim.save(f'std_episodes_{HP_EPISODES}_eps_{HP_EPSILON}.mp4', writer=FFMpegWriter(fps=5, bitrate=1000), dpi=100)
+    #anim.save(f'{HP_EPISODES}_episodes_c1_{HP_C1}_c2_{HP_C2}_d1_{HP_D1}_d2_{HP_D2}.mp4', writer=FFMpegWriter(fps=5, bitrate=1000), dpi=100)
 
     
     # - - - DEMO TEST - - -
@@ -576,11 +643,11 @@ if __name__ == "__main__":
         action = trainer.select_action(state)
         reward, done = trainer.step(action)
         steps += 1
-    #     g.render()
-    #     print(f"Epsilon finale: {trainer.epsilon:.16f}")
-    #     print(f"State: {state}")
-    #     print(f"Steps: {steps}")
-    #     time.sleep(0.15)
+        # g.render()
+        # print(f"Epsilon finale: {trainer.epsilon:.16f}")
+        # print(f"State: {state}")
+        # print(f"Steps: {steps}")
+        # time.sleep(0.15)
     
     if done:
         print(f"Goal Reached in {steps} steps!")

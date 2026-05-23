@@ -42,8 +42,9 @@ where:
 - $\alpha(t)$ learning rate
 
 3. All the other state-action pairs are not updated: 
+
 ```math
-{Q}_{t+1}(x,u) = {Q}_{t}(x,u)$ if $(x,u) \neq (x(t), u(t))
+{Q}_{t+1}(x,u) = {Q}_{t}(x,u) if (x,u) \neq (x(t), u(t))
 ```
 
 Being this an off policy method we want to find the optimal policy. The action value function found in the algorithm converge to the optimal one if: 
@@ -63,7 +64,7 @@ The grid world contains some walls, colored in red, two agents, colored in blue 
 The goal of the agents is to pick every object and then 'deliver' them to the station. When an object is picked it is 'removed' from the grid, an event indicated by an 'X' in place of the object.
 
 <p align="center">
-<img src="img/object_picked.png" width="500" alt="When an object is picked an 'X' is shown to represent that action">
+<img src="img/snapshot_object_picked.png" width="500" alt="When an object is picked an 'X' is shown to represent that action">
 </p>
 
 The shaping of the reward has been done in the following way:
@@ -74,18 +75,41 @@ The shaping of the reward has been done in the following way:
 
 Since it has been observed during sperimentation that the main problem was getting stuck in local minimums and the Q-table was sparse, it has been decided to implement some potential-based rewards using a simple Manhattan attraction. So, all of the objects have an attractive potential that is turned of singularly when one of them in picked. After every one of them is picked a potential for the delivey station is activated. In both cases a reward of +0.05 is given for getting closer the current 'subgoal'.
 
-Regarding epsilon, to avoid a rapid decay of its value like with the classic $\epsilon = \frac{1}{t}$, a decay rate of 0.99 was implemented instead. Stopping at 0.01.
+To avoid a rapid decay of epsilon like with the classic formula $\epsilon = \frac{1}{t}$, it has been implemented as: 
+$\epsilon = \frac{d_1}{d_2+t}$.
 
-Final adjustment has been to maintain an epsilon greedy approach even when doing the final run, with epsilon setted to constant values between 0.1 and 0.33, to escape from local minima. This has proven to be very effective.
-
-Regarding the training, various numbers of episodes have been tested with very reliable results between 50 to 200 episodes.
+These measures have proven effective in avoiding local minima.
 
 # Final considerations
 
+After some hyperparameters tuning the agents seem to learn the optimal policy.
+
+    Final hyperparameters:
+    - c1 = 10000
+    - c2 = 35000
+    - d1 = 25000
+    - d2 = 25000 
+    - gamma = 0.9
+    - episodes = 600 
+
 <p align="center">
-<img src="img/run.gif" width="500" alt="Agents moving in the grid in search of the objects">
+<img src="img/training_reward_trend.png" width="500" alt="Agents moving in the grid in search of the objects">
 </p>
 
-Changing the parameters $\gamma$, $c1$ and $c2$ didn't led to satisfactory results.
+As it can been seen from the graphs representing the total reward:
+- The total reward for single episode grows rapidly and after some fluctuations grows very slowly gradually reaching a maximum value. This maximum value represents the fact that the optimal policy has been learned.
+- The total cumulative reward behavior is also convincing because it has a fluctuation caused by the bigger exploration of the policy in the first part of the training and then it stabilised assuming a linear trend.
 
-Rapid convergence, on average below 200 steps, has been obtained with almost every amount of episodes with constant $\epsilon$ varying from 0.2 to 0.33.
+<p align="center">
+<img src="img/600_episodes_c1_10000_c2_35000_d1_25000_d2_25000.gif" width="500" alt="Agents moving in the grid in search of the objects">
+</p>
+
+At the end of multiple different trainings, where the optimal parameters have been applied, the convergence averaged between 40–45 steps.
+
+## Future challenges
+
+During the experimentation a specific behavior of the agents emerged. Only one of the agents tends to pick the three objects while the other waits until the end when it heads to the delivery station.
+
+Optimizing the behavior of the second agent is likely to result in faster convergence.
+
+
