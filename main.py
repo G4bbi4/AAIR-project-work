@@ -468,9 +468,10 @@ class Trainer:
             self.epsilon = self.d1 / (self.d2 + self.t)
 
 
-    def train(self, episodes): #qui prima c'era il decay rate
+    def train(self, episodes):
             """
             Execute the training process for a specified number of episodes.
+            Plots the reward trend during training.
 
             :param episodes: the number of training episodes to execute
             """
