@@ -354,7 +354,13 @@ class Trainer:
         if not all_collected and unpicked_objects:
             old_dist = min(self.manhattan_distance(prev_pos, obj.position) for obj in unpicked_objects)
             new_dist = min(self.manhattan_distance(current_pos, obj.position) for obj in unpicked_objects)
-            reward += 0.05 * (old_dist - new_dist)
+            #reward += 0.05 * (old_dist - new_dist)
+            if new_dist < old_dist:
+                reward += 0.15 # getting closer
+            elif new_dist > old_dist:
+                reward -= 0.15 # wrong direction penalty
+            else:
+                reward -= 0.35 # no movement penalty
 
             # Penalize moving toward the station before all objects are collected
             old_station = self.manhattan_distance(prev_pos, self.grid.delivery_station)
@@ -365,7 +371,13 @@ class Trainer:
         elif all_collected:
             old_station = self.manhattan_distance(prev_pos, self.grid.delivery_station)
             new_station = self.manhattan_distance(current_pos, self.grid.delivery_station)
-            reward += 0.05 * (old_station - new_station)
+            #reward += 0.05 * (old_station - new_station)
+            if new_station < old_station:
+                reward += 0.4
+            elif new_station >= old_station:
+                reward -= 0.3 # do not move further from station after collecting all objects
+            else:
+                reward -= 0.2 # no movement penalty
 
         return reward
 
@@ -396,6 +408,7 @@ class Trainer:
         actions = self.get_joint_action(joint_action_idx)
         total_reward = 0
         previous_positions = [agent.position for agent in self.grid.agents]
+        agents_getting_closer = 0
         outcome = []
         
         # Apply actions
@@ -411,21 +424,40 @@ class Trainer:
         reached_goal = False
 
         for (agent,prev_pos), (success, attempted_position) in zip(zip(self.grid.agents, previous_positions), outcome):
+            
             if not success: # wall or out of bounds
                 total_reward -= 0.5
+           
             else:
                 is_picked = False # flag for a picked object
+                
                 for obj in self.grid.objects:
                     if not obj.picked and agent.position == obj.position:
                         obj.set_picked(True)
-                        total_reward += 10 # Reward for one picked object 
+                        total_reward += 8 # Reward for one picked object 
                         is_picked = True
                         break
+                
                 if not is_picked:
                     total_reward -= 0.04
 
                 # Add potential-based attraction reward
                 total_reward += self.dynamic_reward(prev_pos, agent.position, unpicked_objects, all_collected)
+
+                if not all_collected and unpicked_objects:
+                    old_dist = min(self.manhattan_distance(prev_pos, obj.position) for obj in unpicked_objects)
+                    new_dist = min(self.manhattan_distance(agent.position, obj.position) for obj in unpicked_objects)
+
+                    if new_dist < old_dist:
+                        agents_getting_closer += 1
+
+        if not all_collected: # forcing both agents to contribute to the task
+            if agents_getting_closer == len(self.grid.agents):
+                total_reward += 0.5
+            elif agents_getting_closer == 1:
+                total_reward -= 0.4
+            else:
+                total_reward -= 0.8
 
         # Recompute object status after any pickups
         unpicked_objects = []
@@ -442,7 +474,7 @@ class Trainer:
 
             all_on_station = all(agent.position == self.grid.delivery_station for agent in self.grid.agents)
             if all_on_station:
-                total_reward += 50  # goal reward
+                total_reward += 30  # goal reward
                 reached_goal = True
 
         return total_reward, reached_goal
@@ -552,13 +584,14 @@ class Trainer:
             nonlocal done
             
             ax.clear()
+            ax.set_title(f"Frame {frame}")
             # Show first frame with initial grid
             if frame == 0:
                 self.grid.plot_grid(fig=fig, ax=ax)
                 return []
             
             state = self.get_state_index()
-            action = self.select_action(state)
+            action = np.argmax(self.q_table[state])
             reward, done = self.step(action)
             self.grid.plot_grid(fig=fig, ax=ax)
             return []
@@ -571,12 +604,12 @@ if __name__ == "__main__":
 
 # - - - HYPERPARAMETERS CONFIGURATION - - -
     
-    HP_C1 = 10000
-    HP_C2 = 35000
-    HP_D1 = 25000
-    HP_D2 = 25000 # d1 e d2 vanno messi alti
+    HP_C1 = 101000
+    HP_C2 = 202000
+    HP_D1 = 250000
+    HP_D2 = 250000 # d1 e d2 vanno messi alti
     HP_GAMMA = 0.9
-    HP_EPISODES = 600
+    HP_EPISODES = 15000
 
     g = Grid(8)
     g.populate(AGENTS, OBJECTS)
@@ -641,7 +674,7 @@ if __name__ == "__main__":
     print("Starting demo ...")
     while not done and steps < 100000:
         state = trainer.get_state_index()
-        action = trainer.select_action(state)
+        action = np.argmax(trainer.q_table[state])
         reward, done = trainer.step(action)
         steps += 1
         # g.render()
